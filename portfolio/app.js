@@ -292,7 +292,7 @@ form?.addEventListener('focusout', event => {
   }, 0);
 });
 
-form?.addEventListener('submit', event => {
+form?.addEventListener('submit', async event => {
   event.preventDefault();
   const fields = new FormData(form);
   const clean = key => String(fields.get(key) || '').trim();
@@ -305,18 +305,58 @@ form?.addEventListener('submit', event => {
   const invalidControls = [nameInput, emailInput, detailsInput].filter(control => !control.checkValidity());
   formFields.forEach(field => field.classList.toggle('is-invalid', !fieldIsComplete(field)));
   if (!clean('type') || invalidControls.length) {
-    formStatus.textContent = 'Check the highlighted fields before preparing your enquiry.';
+    formStatus.textContent = 'Check the highlighted fields before sending your enquiry.';
     if (!clean('type') && !invalidControls.length) selectTrigger?.focus();
     else invalidControls[0]?.focus();
     updateFormProgress();
     return;
   }
 
-  latestBrief = `Hi Arun,\n\nI'd like to discuss a website project.\n\nName: ${clean('name')}\nEmail: ${clean('email')}\nProject: ${clean('type')}\n\nAbout the project:\n${clean('details')}\n\nThanks,\n${clean('name')}`;
-  const subject = `Website enquiry — ${clean('type')}`;
-  window.location.href = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(latestBrief)}`;
-  formStatus.textContent = 'Your draft is ready in your email app. If it did not open, download the enquiry below. Nothing has been sent by this website.';
-  downloadButton.hidden = false;
+  const payload = {
+    name: clean('name'),
+    email: clean('email'),
+    type: clean('type'),
+    details: clean('details')
+  };
+
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const originalBtnContent = submitBtn ? submitBtn.innerHTML : '';
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span>Sending enquiry...</span>';
+  }
+  formStatus.textContent = 'Sending your message directly to Arun...';
+
+  try {
+    const response = await fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await response.json();
+
+    if (response.ok && result.success) {
+      formStatus.textContent = 'Enquiry sent successfully! Arun will receive your email and reply directly to your inbox.';
+      form.reset();
+      updateFormProgress();
+      if (downloadButton) downloadButton.hidden = true;
+    } else {
+      throw new Error(result.error || 'Server submission failed.');
+    }
+  } catch (err) {
+    console.warn('Direct API submission error, falling back to mailto draft:', err.message);
+    latestBrief = `Hi Arun,\n\nI'd like to discuss a website project.\n\nName: ${payload.name}\nEmail: ${payload.email}\nProject: ${payload.type}\n\nAbout the project:\n${payload.details}\n\nThanks,\n${payload.name}`;
+    const subject = `Website enquiry — ${payload.type}`;
+    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(latestBrief)}`;
+    formStatus.textContent = 'Direct send fallback: Draft created in your email app. Nothing has been sent automatically.';
+    if (downloadButton) downloadButton.hidden = false;
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = originalBtnContent;
+    }
+  }
 });
 
 form?.addEventListener('input', event => {
